@@ -16,6 +16,18 @@ pub async fn people_page(pool: &State<SqlitePool>) -> Result<Template, Status> {
     }))
 }
 
+#[get("/people/<id>")]
+pub async fn edit_person_page(pool: &State<SqlitePool>, id: i64) -> Result<Template, Status> {
+    let person = db::get_person(pool, id)
+        .await
+        .map_err(|_| Status::InternalServerError)?
+        .ok_or(Status::NotFound)?;
+
+    Ok(Template::render("edit_person", context! {
+        person: person
+    }))
+}
+
 #[get("/persons")]
 pub async fn get_all_persons(pool: &State<SqlitePool>) -> Result<Json<Vec<Person>>, Status> {
     db::get_all_persons(pool)
