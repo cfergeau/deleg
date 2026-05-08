@@ -44,7 +44,7 @@
             <tr>
                 <th>First Name</th>
                 <th>Last Name</th>
-                <th>Role</th>
+                <th>Roles</th>
             </tr>
         </thead>
         <tbody>
@@ -52,7 +52,7 @@
             <tr onclick="window.location='/people/{{ person.id }}'">
                 <td>{{ person.name }}</td>
                 <td>{{ person.surname }}</td>
-                <td>{{ person.role }}</td>
+                <td>{{ person.roles | join(sep=", ") }}</td>
             </tr>
             {% endfor %}
         </tbody>

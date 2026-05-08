@@ -1,13 +1,14 @@
 use rocket::{State, serde::json::Json, http::Status};
 use rocket::{get, post, put, delete, routes};
 use rocket_dyn_templates::{Template, context};
+use serde::Deserialize;
 use sqlx::SqlitePool;
-use crate::models::Person;
+use crate::models::{Person, PersonWithRoles, Role};
 use crate::db;
 
 #[get("/people")]
 pub async fn people_page(pool: &State<SqlitePool>) -> Result<Template, Status> {
-    let persons = db::get_all_persons(pool)
+    let persons = db::get_all_persons_with_roles(pool)
         .await
         .map_err(|_| Status::InternalServerError)?;
 
@@ -18,55 +19,90 @@ pub async fn people_page(pool: &State<SqlitePool>) -> Result<Template, Status> {
 
 #[get("/people/<id>")]
 pub async fn edit_person_page(pool: &State<SqlitePool>, id: i64) -> Result<Template, Status> {
-    let person = db::get_person(pool, id)
+    let person_with_roles = db::get_person_with_roles(pool, id)
         .await
         .map_err(|_| Status::InternalServerError)?
         .ok_or(Status::NotFound)?;
 
+    let all_roles = db::get_all_roles(pool)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
     Ok(Template::render("edit_person", context! {
-        person: person
+        person: person_with_roles.person,
+        person_roles: person_with_roles.roles,
+        all_roles: all_roles
     }))
 }
 
+#[derive(Deserialize)]
+pub struct PersonWithRolesInput {
+    #[serde(flatten)]
+    person: Person,
+    roles: Vec<String>,
+}
+
 #[get("/persons")]
-pub async fn get_all_persons(pool: &State<SqlitePool>) -> Result<Json<Vec<Person>>, Status> {
-    db::get_all_persons(pool)
+pub async fn get_all_persons(pool: &State<SqlitePool>) -> Result<Json<Vec<PersonWithRoles>>, Status> {
+    db::get_all_persons_with_roles(pool)
         .await
         .map(Json)
         .map_err(|_| Status::InternalServerError)
 }
 
 #[get("/persons/<id>")]
-pub async fn get_person(pool: &State<SqlitePool>, id: i64) -> Result<Json<Person>, Status> {
-    db::get_person(pool, id)
+pub async fn get_person(pool: &State<SqlitePool>, id: i64) -> Result<Json<PersonWithRoles>, Status> {
+    db::get_person_with_roles(pool, id)
         .await
         .map_err(|_| Status::InternalServerError)?
         .map(Json)
         .ok_or(Status::NotFound)
 }
 
-#[post("/persons", data = "<person>")]
+#[post("/persons", data = "<input>")]
 pub async fn create_person(
     pool: &State<SqlitePool>,
-    person: Json<Person>,
-) -> Result<Json<Person>, Status> {
-    db::create_person(pool, &person.into_inner())
+    input: Json<PersonWithRolesInput>,
+) -> Result<Json<PersonWithRoles>, Status> {
+    let input = input.into_inner();
+    let created_person = db::create_person(pool, &input.person)
         .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    let person_id = created_person.id.ok_or(Status::InternalServerError)?;
+
+    db::set_person_roles(pool, person_id, &input.roles)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    db::get_person_with_roles(pool, person_id)
+        .await
+        .map_err(|_| Status::InternalServerError)?
         .map(Json)
-        .map_err(|_| Status::InternalServerError)
+        .ok_or(Status::InternalServerError)
 }
 
-#[put("/persons/<id>", data = "<person>")]
+#[put("/persons/<id>", data = "<input>")]
 pub async fn update_person(
     pool: &State<SqlitePool>,
     id: i64,
-    person: Json<Person>,
+    input: Json<PersonWithRolesInput>,
 ) -> Result<Status, Status> {
-    db::update_person(pool, id, &person.into_inner())
+    let input = input.into_inner();
+
+    let updated = db::update_person(pool, id, &input.person)
         .await
-        .map_err(|_| Status::InternalServerError)?
-        .then_some(Status::Ok)
-        .ok_or(Status::NotFound)
+        .map_err(|_| Status::InternalServerError)?;
+
+    if !updated {
+        return Err(Status::NotFound);
+    }
+
+    db::set_person_roles(pool, id, &input.roles)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    Ok(Status::Ok)
 }
 
 #[delete("/persons/<id>")]
@@ -93,8 +129,30 @@ mod tests {
                 "CREATE TABLE IF NOT EXISTS persons (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    surname TEXT NOT NULL,
-                    role TEXT NOT NULL
+                    surname TEXT NOT NULL
+                )"
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "CREATE TABLE IF NOT EXISTS roles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE
+                )"
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "CREATE TABLE IF NOT EXISTS person_roles (
+                    person_id INTEGER NOT NULL,
+                    role_id INTEGER NOT NULL,
+                    PRIMARY KEY (person_id, role_id),
+                    FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE CASCADE,
+                    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
                 )"
             )
             .execute(&pool)
@@ -138,7 +196,7 @@ mod tests {
         let response = client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"John","surname":"Doe","role":"Developer"}"#)
+            .body(r#"{"name":"John","surname":"Doe","roles":["Developer"]}"#)
             .dispatch();
 
         assert_eq!(response.status(), Status::Ok);
@@ -168,13 +226,13 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Jane","surname":"Smith","role":"Manager"}"#)
+            .body(r#"{"name":"Jane","surname":"Smith","roles":["Manager"]}"#)
             .dispatch();
 
         let response = client
             .put("/api/persons/1")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Jane","surname":"Smith","role":"Senior Manager"}"#)
+            .body(r#"{"name":"Jane","surname":"Smith","roles":["Senior Manager"]}"#)
             .dispatch();
 
         assert_eq!(response.status(), Status::Ok);
@@ -191,7 +249,7 @@ mod tests {
         let response = client
             .put("/api/persons/999")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Test","surname":"User","role":"Role"}"#)
+            .body(r#"{"name":"Test","surname":"User","roles":["Role"]}"#)
             .dispatch();
 
         assert_eq!(response.status(), Status::NotFound);
@@ -204,7 +262,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Delete","surname":"Me","role":"Test"}"#)
+            .body(r#"{"name":"Delete","surname":"Me","roles":["Test"]}"#)
             .dispatch();
 
         let response = client.delete("/api/persons/1").dispatch();
@@ -229,13 +287,13 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Alice","surname":"Brown","role":"Designer"}"#)
+            .body(r#"{"name":"Alice","surname":"Brown","roles":["Designer"]}"#)
             .dispatch();
 
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Bob","surname":"Green","role":"Developer"}"#)
+            .body(r#"{"name":"Bob","surname":"Green","roles":["Developer"]}"#)
             .dispatch();
 
         let response = client.get("/api/persons").dispatch();
@@ -256,7 +314,7 @@ mod tests {
         assert!(body.contains("<title>People</title>"));
         assert!(body.contains("<th>First Name</th>"));
         assert!(body.contains("<th>Last Name</th>"));
-        assert!(body.contains("<th>Role</th>"));
+        assert!(body.contains("<th>Roles</th>"));
     }
 
     #[test]
@@ -266,13 +324,13 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"John","surname":"Doe","role":"Developer"}"#)
+            .body(r#"{"name":"John","surname":"Doe","roles":["Developer"]}"#)
             .dispatch();
 
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Jane","surname":"Smith","role":"Manager"}"#)
+            .body(r#"{"name":"Jane","surname":"Smith","roles":["Manager"]}"#)
             .dispatch();
 
         let response = client.get("/people").dispatch();
@@ -306,7 +364,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"John","surname":"Doe","role":"Developer"}"#)
+            .body(r#"{"name":"John","surname":"Doe","roles":["Developer"]}"#)
             .dispatch();
 
         let response = client.get("/people/1").dispatch();
@@ -337,7 +395,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Alice","surname":"Smith","role":"Manager"}"#)
+            .body(r#"{"name":"Alice","surname":"Smith","roles":["Manager"]}"#)
             .dispatch();
 
         let response = client.get("/people/1").dispatch();
@@ -347,7 +405,7 @@ mod tests {
         assert!(body.contains(r#"<form id="editForm""#));
         assert!(body.contains(r#"<input type="text" id="name""#));
         assert!(body.contains(r#"<input type="text" id="surname""#));
-        assert!(body.contains(r#"<input type="text" id="role""#));
+        assert!(body.contains(r#"<input type="text" id="roles""#));
     }
 
     #[test]
@@ -357,7 +415,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Test","surname":"User","role":"Temp"}"#)
+            .body(r#"{"name":"Test","surname":"User","roles":["Temp"]}"#)
             .dispatch();
 
         let response = client.get("/people/1").dispatch();
@@ -375,7 +433,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Bob","surname":"Brown","role":"Tester"}"#)
+            .body(r#"{"name":"Bob","surname":"Brown","roles":["Tester"]}"#)
             .dispatch();
 
         let response = client.get("/people").dispatch();
