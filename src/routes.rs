@@ -1,8 +1,20 @@
 use rocket::{State, serde::json::Json, http::Status};
 use rocket::{get, post, put, delete, routes};
+use rocket_dyn_templates::{Template, context};
 use sqlx::SqlitePool;
 use crate::models::Person;
 use crate::db;
+
+#[get("/people")]
+pub async fn people_page(pool: &State<SqlitePool>) -> Result<Template, Status> {
+    let persons = db::get_all_persons(pool)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    Ok(Template::render("people", context! {
+        persons: persons
+    }))
+}
 
 #[get("/persons")]
 pub async fn get_all_persons(pool: &State<SqlitePool>) -> Result<Json<Vec<Person>>, Status> {

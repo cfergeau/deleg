@@ -3,6 +3,7 @@ mod db;
 mod routes;
 
 use rocket::{launch, routes};
+use rocket_dyn_templates::Template;
 use sqlx::sqlite::SqlitePool;
 
 #[launch]
@@ -23,6 +24,10 @@ async fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
+        .attach(Template::fairing())
+        .mount("/", routes![
+            routes::people_page,
+        ])
         .mount("/api", routes![
             routes::get_all_persons,
             routes::get_person,
