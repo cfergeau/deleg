@@ -94,6 +94,10 @@ mod tests {
 
         let rocket = rocket::build()
             .manage(pool)
+            .attach(Template::fairing())
+            .mount("/", routes![
+                people_page,
+            ])
             .mount("/api", routes![
                 get_all_persons,
                 get_person,
@@ -226,5 +230,59 @@ mod tests {
         let body = response.into_string().unwrap();
         assert!(body.contains("Alice"));
         assert!(body.contains("Bob"));
+    }
+
+    #[test]
+    fn test_people_page_empty() {
+        let client = setup_test_rocket();
+
+        let response = client.get("/people").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains("<title>People</title>"));
+        assert!(body.contains("<th>First Name</th>"));
+        assert!(body.contains("<th>Last Name</th>"));
+        assert!(body.contains("<th>Role</th>"));
+    }
+
+    #[test]
+    fn test_people_page_with_data() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/persons")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"John","surname":"Doe","role":"Developer"}"#)
+            .dispatch();
+
+        client
+            .post("/api/persons")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Jane","surname":"Smith","role":"Manager"}"#)
+            .dispatch();
+
+        let response = client.get("/people").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains("<title>People</title>"));
+        assert!(body.contains("<td>John</td>"));
+        assert!(body.contains("<td>Doe</td>"));
+        assert!(body.contains("<td>Developer</td>"));
+        assert!(body.contains("<td>Jane</td>"));
+        assert!(body.contains("<td>Smith</td>"));
+        assert!(body.contains("<td>Manager</td>"));
+    }
+
+    #[test]
+    fn test_people_page_includes_htmx() {
+        let client = setup_test_rocket();
+
+        let response = client.get("/people").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains("htmx.org"));
     }
 }
