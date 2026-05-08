@@ -109,6 +109,7 @@ mod tests {
             .attach(Template::fairing())
             .mount("/", routes![
                 people_page,
+                edit_person_page,
             ])
             .mount("/api", routes![
                 get_all_persons,
@@ -296,5 +297,92 @@ mod tests {
 
         let body = response.into_string().unwrap();
         assert!(body.contains("htmx.org"));
+    }
+
+    #[test]
+    fn test_edit_person_page() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/persons")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"John","surname":"Doe","role":"Developer"}"#)
+            .dispatch();
+
+        let response = client.get("/people/1").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains("<title>Edit Person</title>"));
+        assert!(body.contains(r#"value="John""#));
+        assert!(body.contains(r#"value="Doe""#));
+        assert!(body.contains(r#"value="Developer""#));
+        assert!(body.contains("Save"));
+        assert!(body.contains("Cancel"));
+        assert!(body.contains("Delete"));
+    }
+
+    #[test]
+    fn test_edit_person_page_not_found() {
+        let client = setup_test_rocket();
+
+        let response = client.get("/people/999").dispatch();
+        assert_eq!(response.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn test_edit_person_page_has_form() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/persons")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Alice","surname":"Smith","role":"Manager"}"#)
+            .dispatch();
+
+        let response = client.get("/people/1").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains(r#"<form id="editForm""#));
+        assert!(body.contains(r#"<input type="text" id="name""#));
+        assert!(body.contains(r#"<input type="text" id="surname""#));
+        assert!(body.contains(r#"<input type="text" id="role""#));
+    }
+
+    #[test]
+    fn test_edit_page_has_delete_button() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/persons")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Test","surname":"User","role":"Temp"}"#)
+            .dispatch();
+
+        let response = client.get("/people/1").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains(r#"hx-delete="/api/persons/1""#));
+        assert!(body.contains(r#"hx-confirm="Are you sure you want to delete this person?""#));
+    }
+
+    #[test]
+    fn test_people_page_rows_clickable() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/persons")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Bob","surname":"Brown","role":"Tester"}"#)
+            .dispatch();
+
+        let response = client.get("/people").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains(r#"onclick="window.location='/people/1'""#));
+        assert!(body.contains("cursor: pointer"));
     }
 }
