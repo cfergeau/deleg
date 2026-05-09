@@ -28,6 +28,7 @@ async fn rocket() -> _ {
         .mount("/", routes![
             routes::people_page,
             routes::edit_person_page,
+            routes::roles_page,
         ])
         .mount("/api", routes![
             routes::get_all_persons,

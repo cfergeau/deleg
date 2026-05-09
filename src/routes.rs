@@ -35,6 +35,17 @@ pub async fn edit_person_page(pool: &State<SqlitePool>, id: i64) -> Result<Templ
     }))
 }
 
+#[get("/roles")]
+pub async fn roles_page(pool: &State<SqlitePool>) -> Result<Template, Status> {
+    let roles = db::get_all_roles(pool)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    Ok(Template::render("roles", context! {
+        roles: roles
+    }))
+}
+
 #[derive(Deserialize)]
 pub struct PersonWithRolesInput {
     #[serde(flatten)]
@@ -233,6 +244,7 @@ mod tests {
             .mount("/", routes![
                 people_page,
                 edit_person_page,
+                roles_page,
             ])
             .mount("/api", routes![
                 get_all_persons,
@@ -634,6 +646,46 @@ mod tests {
         let response = client.get("/api/roles").dispatch();
         assert_eq!(response.status(), Status::Ok);
         let body = response.into_string().unwrap();
+        assert!(body.contains("Élu titulaire CSE"));
+        assert!(body.contains("Délégué syndical"));
+        assert!(body.contains("18"));
+        assert!(body.contains("24"));
+    }
+
+    #[test]
+    fn test_roles_page_empty() {
+        let client = setup_test_rocket();
+
+        let response = client.get("/roles").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains("<title>Roles</title>"));
+        assert!(body.contains("Role Name"));
+        assert!(body.contains("Delegation Hours"));
+    }
+
+    #[test]
+    fn test_roles_page_with_data() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/roles")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Élu titulaire CSE","delegation_hours":18.0}"#)
+            .dispatch();
+
+        client
+            .post("/api/roles")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Délégué syndical","delegation_hours":24.0}"#)
+            .dispatch();
+
+        let response = client.get("/roles").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().unwrap();
+        assert!(body.contains("<title>Roles</title>"));
         assert!(body.contains("Élu titulaire CSE"));
         assert!(body.contains("Délégué syndical"));
         assert!(body.contains("18"));
