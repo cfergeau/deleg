@@ -3,6 +3,7 @@ use sqlx::FromRow;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Person {
+    #[serde(default)]
     pub id: Option<i64>,
     pub name: String,
     pub surname: String,
@@ -17,6 +18,7 @@ pub struct PersonWithRoles {
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Role {
+    #[serde(default)]
     pub id: Option<i64>,
     pub name: String,
     pub delegation_hours: f64,

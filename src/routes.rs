@@ -114,6 +114,68 @@ pub async fn delete_person(pool: &State<SqlitePool>, id: i64) -> Result<Status, 
         .ok_or(Status::NotFound)
 }
 
+// Role API endpoints
+#[get("/roles")]
+pub async fn get_all_roles(pool: &State<SqlitePool>) -> Result<Json<Vec<Role>>, Status> {
+    db::get_all_roles(pool)
+        .await
+        .map(Json)
+        .map_err(|_| Status::InternalServerError)
+}
+
+#[get("/roles/<id>")]
+pub async fn get_role(pool: &State<SqlitePool>, id: i64) -> Result<Json<Role>, Status> {
+    db::get_role(pool, id)
+        .await
+        .map_err(|_| Status::InternalServerError)?
+        .map(Json)
+        .ok_or(Status::NotFound)
+}
+
+#[post("/roles", data = "<role>")]
+pub async fn create_role(
+    pool: &State<SqlitePool>,
+    role: Json<Role>,
+) -> Result<Json<Role>, Status> {
+    db::create_role(pool, &role.into_inner())
+        .await
+        .map(Json)
+        .map_err(|_| Status::InternalServerError)
+}
+
+#[put("/roles/<id>", data = "<role>")]
+pub async fn update_role(
+    pool: &State<SqlitePool>,
+    id: i64,
+    role: Json<Role>,
+) -> Result<Json<Role>, Status> {
+    let role_data = role.into_inner();
+
+    let updated = db::update_role(pool, id, &role_data)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    if !updated {
+        return Err(Status::NotFound);
+    }
+
+    // Return the updated role
+    db::get_role(pool, id)
+        .await
+        .map_err(|_| Status::InternalServerError)?
+        .map(Json)
+        .ok_or(Status::InternalServerError)
+}
+
+#[delete("/roles/<id>")]
+pub async fn delete_role(pool: &State<SqlitePool>, id: i64) -> Result<Status, Status> {
+    db::delete_role(pool, id)
+        .await
+        .map_err(|_| Status::InternalServerError)?
+        .then_some(Status::NoContent)
+        .ok_or(Status::NotFound)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +238,11 @@ mod tests {
                 create_person,
                 update_person,
                 delete_person,
+                get_all_roles,
+                get_role,
+                create_role,
+                update_role,
+                delete_role,
             ]);
 
         Client::tracked(rocket).expect("valid rocket instance")
@@ -443,5 +510,131 @@ mod tests {
         let body = response.into_string().unwrap();
         assert!(body.contains(r#"onclick="window.location='/people/1'""#));
         assert!(body.contains("cursor: pointer"));
+    }
+
+    // Role API tests
+    #[test]
+    fn test_get_all_roles_empty() {
+        let client = setup_test_rocket();
+        let response = client.get("/api/roles").dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.into_string().unwrap(), "[]");
+    }
+
+    #[test]
+    fn test_create_and_get_role() {
+        let client = setup_test_rocket();
+
+        let response = client
+            .post("/api/roles")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Élu titulaire CSE","delegation_hours":18.0}"#)
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().unwrap();
+        assert!(body.contains("Élu titulaire CSE"));
+        assert!(body.contains("18"));
+
+        let response = client.get("/api/roles/1").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().unwrap();
+        assert!(body.contains("Élu titulaire CSE"));
+        assert!(body.contains("18"));
+    }
+
+    #[test]
+    fn test_get_role_not_found() {
+        let client = setup_test_rocket();
+
+        let response = client.get("/api/roles/999").dispatch();
+        assert_eq!(response.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn test_update_role() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/roles")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Délégué syndical","delegation_hours":12.0}"#)
+            .dispatch();
+
+        let response = client
+            .put("/api/roles/1")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Délégué syndical","delegation_hours":24.0}"#)
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+
+        let response = client.get("/api/roles/1").dispatch();
+        let body = response.into_string().unwrap();
+        assert!(body.contains("24"));
+    }
+
+    #[test]
+    fn test_update_role_not_found() {
+        let client = setup_test_rocket();
+
+        let response = client
+            .put("/api/roles/999")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Test Role","delegation_hours":10.0}"#)
+            .dispatch();
+
+        assert_eq!(response.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn test_delete_role() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/roles")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Temporary Role","delegation_hours":5.0}"#)
+            .dispatch();
+
+        let response = client.delete("/api/roles/1").dispatch();
+        assert_eq!(response.status(), Status::NoContent);
+
+        let response = client.get("/api/roles/1").dispatch();
+        assert_eq!(response.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn test_delete_role_not_found() {
+        let client = setup_test_rocket();
+
+        let response = client.delete("/api/roles/999").dispatch();
+        assert_eq!(response.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn test_get_all_roles_multiple() {
+        let client = setup_test_rocket();
+
+        client
+            .post("/api/roles")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Élu titulaire CSE","delegation_hours":18.0}"#)
+            .dispatch();
+
+        client
+            .post("/api/roles")
+            .header(ContentType::JSON)
+            .body(r#"{"name":"Délégué syndical","delegation_hours":24.0}"#)
+            .dispatch();
+
+        let response = client.get("/api/roles").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().unwrap();
+        assert!(body.contains("Élu titulaire CSE"));
+        assert!(body.contains("Délégué syndical"));
+        assert!(body.contains("18"));
+        assert!(body.contains("24"));
     }
 }

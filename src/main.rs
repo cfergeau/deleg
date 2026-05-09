@@ -35,5 +35,10 @@ async fn rocket() -> _ {
             routes::create_person,
             routes::update_person,
             routes::delete_person,
+            routes::get_all_roles,
+            routes::get_role,
+            routes::create_role,
+            routes::update_role,
+            routes::delete_role,
         ])
 }

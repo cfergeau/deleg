@@ -148,6 +148,19 @@ pub async fn get_all_roles(pool: &SqlitePool) -> Result<Vec<Role>> {
     Ok(roles)
 }
 
+pub async fn update_role(pool: &SqlitePool, id: i64, role: &Role) -> Result<bool> {
+    let result = sqlx::query!(
+        "UPDATE roles SET name = ?, delegation_hours = ? WHERE id = ?",
+        role.name,
+        role.delegation_hours,
+        id
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn delete_role(pool: &SqlitePool, id: i64) -> Result<bool> {
     let result = sqlx::query!(
         "DELETE FROM roles WHERE id = ?",
