@@ -202,6 +202,7 @@ pub async fn get_person_roles(pool: &SqlitePool, person_id: i64) -> Result<Vec<R
         "SELECT r.name, pr.startdate, pr.enddate FROM roles r
          JOIN person_roles pr ON r.id = pr.role_id
          WHERE pr.person_id = ?
+           AND (pr.enddate IS NULL OR pr.enddate >= date('now'))
          ORDER BY r.name",
         person_id
     )
@@ -576,5 +577,45 @@ mod tests {
         assert_eq!(all[0].roles[0].role_name, "Developer");
         assert_eq!(all[1].person.name, "Bob");
         assert_eq!(all[1].roles.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_roles_with_past_enddate_not_shown() {
+        let pool = setup_test_db().await;
+
+        let person = Person::new("Claire".to_string(), "Durand".to_string());
+        let created_person = create_person(&pool, &person).await.unwrap();
+        let person_id = created_person.id.unwrap();
+
+        // Add roles with different end dates
+        let role_assignments = vec![
+            // Role with no enddate - should be shown
+            RoleAssignment {
+                role_name: "Current Role".to_string(),
+                startdate: Some("2024-01-01".to_string()),
+                enddate: None
+            },
+            // Role with future enddate - should be shown
+            RoleAssignment {
+                role_name: "Future Role".to_string(),
+                startdate: Some("2024-01-01".to_string()),
+                enddate: Some("2099-12-31".to_string())
+            },
+            // Role with past enddate - should NOT be shown
+            RoleAssignment {
+                role_name: "Expired Role".to_string(),
+                startdate: Some("2020-01-01".to_string()),
+                enddate: Some("2023-12-31".to_string())
+            },
+        ];
+        set_person_roles(&pool, person_id, &role_assignments).await.unwrap();
+
+        // Fetch roles - should only get the two active ones
+        let roles = get_person_roles(&pool, person_id).await.unwrap();
+
+        assert_eq!(roles.len(), 2, "Should only return roles without enddate or with future enddate");
+        assert!(roles.iter().any(|r| r.role_name == "Current Role"), "Should include role with no enddate");
+        assert!(roles.iter().any(|r| r.role_name == "Future Role"), "Should include role with future enddate");
+        assert!(!roles.iter().any(|r| r.role_name == "Expired Role"), "Should NOT include role with past enddate");
     }
 }
