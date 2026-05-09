@@ -79,7 +79,7 @@
         </div>
         <div class="form-group">
             <label for="roles">Roles (comma-separated):</label>
-            <input type="text" id="roles" name="roles" value="{{ person_roles | join(sep=', ') }}" placeholder="e.g., Élu titulaire CSE, Délégué syndical">
+            <input type="text" id="roles" name="roles" value="{% for assignment in person_roles %}{{ assignment.role_name }}{% if not loop.last %}, {% endif %}{% endfor %}" placeholder="e.g., Élu titulaire CSE, Délégué syndical">
             {% if all_roles %}
             <small style="display: block; margin-top: 5px; color: #666;">
                 Available roles:
@@ -102,7 +102,14 @@
         document.getElementById('editForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const rolesInput = document.getElementById('roles').value;
-            const roles = rolesInput.split(',').map(r => r.trim()).filter(r => r.length > 0);
+            const roles = rolesInput.split(',')
+                .map(r => r.trim())
+                .filter(r => r.length > 0)
+                .map(role_name => ({
+                    role_name: role_name,
+                    startdate: null,
+                    enddate: null
+                }));
 
             const formData = {
                 name: document.getElementById('name').value,

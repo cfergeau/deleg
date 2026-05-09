@@ -52,7 +52,7 @@
             <tr onclick="window.location='/people/{{ person.id }}'">
                 <td>{{ person.name }}</td>
                 <td>{{ person.surname }}</td>
-                <td>{{ person.roles | join(sep=", ") }}</td>
+                <td>{% for assignment in person.roles %}{{ assignment.role_name }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
             </tr>
             {% endfor %}
         </tbody>

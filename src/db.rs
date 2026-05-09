@@ -1,5 +1,5 @@
 use sqlx::{SqlitePool, Result};
-use crate::models::{Person, PersonWithRoles, Role};
+use crate::models::{Person, PersonWithRoles, Role, RoleAssignment};
 
 // Person CRUD operations
 pub async fn create_person(pool: &SqlitePool, person: &Person) -> Result<Person> {
@@ -197,9 +197,9 @@ pub async fn remove_role_from_person(pool: &SqlitePool, person_id: i64, role_id:
     Ok(result.rows_affected() > 0)
 }
 
-pub async fn get_person_roles(pool: &SqlitePool, person_id: i64) -> Result<Vec<String>> {
+pub async fn get_person_roles(pool: &SqlitePool, person_id: i64) -> Result<Vec<RoleAssignment>> {
     let roles = sqlx::query!(
-        "SELECT r.name FROM roles r
+        "SELECT r.name, pr.startdate, pr.enddate FROM roles r
          JOIN person_roles pr ON r.id = pr.role_id
          WHERE pr.person_id = ?
          ORDER BY r.name",
@@ -208,10 +208,14 @@ pub async fn get_person_roles(pool: &SqlitePool, person_id: i64) -> Result<Vec<S
     .fetch_all(pool)
     .await?;
 
-    Ok(roles.into_iter().map(|r| r.name).collect())
+    Ok(roles.into_iter().map(|r| RoleAssignment {
+        role_name: r.name,
+        startdate: r.startdate,
+        enddate: r.enddate,
+    }).collect())
 }
 
-pub async fn set_person_roles(pool: &SqlitePool, person_id: i64, role_names: &[String]) -> Result<()> {
+pub async fn set_person_roles(pool: &SqlitePool, person_id: i64, role_assignments: &[RoleAssignment]) -> Result<()> {
     // Remove all existing roles
     sqlx::query!(
         "DELETE FROM person_roles WHERE person_id = ?",
@@ -220,16 +224,24 @@ pub async fn set_person_roles(pool: &SqlitePool, person_id: i64, role_names: &[S
     .execute(pool)
     .await?;
 
-    // Add new roles
-    for role_name in role_names {
+    // Add new roles with dates
+    for assignment in role_assignments {
         // Get or create role
-        let role = match get_role_by_name(pool, role_name).await? {
+        let role = match get_role_by_name(pool, &assignment.role_name).await? {
             Some(r) => r,
-            None => create_role(pool, &Role::new(role_name.clone(), 0.0)).await?,
+            None => create_role(pool, &Role::new(assignment.role_name.clone(), 0.0)).await?,
         };
 
         if let Some(role_id) = role.id {
-            add_role_to_person(pool, person_id, role_id).await?;
+            sqlx::query!(
+                "INSERT INTO person_roles (person_id, role_id, startdate, enddate) VALUES (?, ?, ?, ?)",
+                person_id,
+                role_id,
+                assignment.startdate,
+                assignment.enddate
+            )
+            .execute(pool)
+            .await?;
         }
     }
 
@@ -269,6 +281,8 @@ mod tests {
             "CREATE TABLE IF NOT EXISTS person_roles (
                 person_id INTEGER NOT NULL,
                 role_id INTEGER NOT NULL,
+                startdate TEXT,
+                enddate TEXT,
                 PRIMARY KEY (person_id, role_id),
                 FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE CASCADE,
                 FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
@@ -453,7 +467,7 @@ mod tests {
 
         let roles = get_person_roles(&pool, person_id).await.unwrap();
         assert_eq!(roles.len(), 1);
-        assert_eq!(roles[0], "Developer");
+        assert_eq!(roles[0].role_name, "Developer");
     }
 
     #[tokio::test]
@@ -498,8 +512,8 @@ mod tests {
         let person_with_roles = person_with_roles.unwrap();
         assert_eq!(person_with_roles.person.name, "Alice");
         assert_eq!(person_with_roles.roles.len(), 2);
-        assert!(person_with_roles.roles.contains(&"Developer".to_string()));
-        assert!(person_with_roles.roles.contains(&"Manager".to_string()));
+        assert!(person_with_roles.roles.iter().any(|r| r.role_name == "Developer"));
+        assert!(person_with_roles.roles.iter().any(|r| r.role_name == "Manager"));
     }
 
     #[tokio::test]
@@ -510,25 +524,30 @@ mod tests {
         let created_person = create_person(&pool, &person).await.unwrap();
         let person_id = created_person.id.unwrap();
 
-        let role_names = vec!["Developer".to_string(), "Architect".to_string()];
-        set_person_roles(&pool, person_id, &role_names).await.unwrap();
+        let role_assignments = vec![
+            RoleAssignment { role_name: "Developer".to_string(), startdate: None, enddate: None },
+            RoleAssignment { role_name: "Architect".to_string(), startdate: None, enddate: None },
+        ];
+        set_person_roles(&pool, person_id, &role_assignments).await.unwrap();
 
         let roles = get_person_roles(&pool, person_id).await.unwrap();
         assert_eq!(roles.len(), 2);
-        assert!(roles.contains(&"Developer".to_string()));
-        assert!(roles.contains(&"Architect".to_string()));
+        assert!(roles.iter().any(|r| r.role_name == "Developer"));
+        assert!(roles.iter().any(|r| r.role_name == "Architect"));
 
         // Verify auto-created roles have 0.0 delegation hours
         let architect_role = get_role_by_name(&pool, "Architect").await.unwrap().unwrap();
         assert_eq!(architect_role.delegation_hours, 0.0);
 
         // Update roles
-        let new_role_names = vec!["Manager".to_string()];
-        set_person_roles(&pool, person_id, &new_role_names).await.unwrap();
+        let new_role_assignments = vec![
+            RoleAssignment { role_name: "Manager".to_string(), startdate: None, enddate: None },
+        ];
+        set_person_roles(&pool, person_id, &new_role_assignments).await.unwrap();
 
         let roles = get_person_roles(&pool, person_id).await.unwrap();
         assert_eq!(roles.len(), 1);
-        assert_eq!(roles[0], "Manager");
+        assert_eq!(roles[0].role_name, "Manager");
     }
 
     #[tokio::test]
@@ -541,14 +560,20 @@ mod tests {
         let created_person1 = create_person(&pool, &person1).await.unwrap();
         let created_person2 = create_person(&pool, &person2).await.unwrap();
 
-        set_person_roles(&pool, created_person1.id.unwrap(), &vec!["Developer".to_string()]).await.unwrap();
-        set_person_roles(&pool, created_person2.id.unwrap(), &vec!["Manager".to_string(), "Designer".to_string()]).await.unwrap();
+        let roles1 = vec![RoleAssignment { role_name: "Developer".to_string(), startdate: None, enddate: None }];
+        let roles2 = vec![
+            RoleAssignment { role_name: "Manager".to_string(), startdate: None, enddate: None },
+            RoleAssignment { role_name: "Designer".to_string(), startdate: None, enddate: None },
+        ];
+        set_person_roles(&pool, created_person1.id.unwrap(), &roles1).await.unwrap();
+        set_person_roles(&pool, created_person2.id.unwrap(), &roles2).await.unwrap();
 
         let all = get_all_persons_with_roles(&pool).await.unwrap();
 
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].person.name, "Alice");
-        assert_eq!(all[0].roles, vec!["Developer"]);
+        assert_eq!(all[0].roles.len(), 1);
+        assert_eq!(all[0].roles[0].role_name, "Developer");
         assert_eq!(all[1].person.name, "Bob");
         assert_eq!(all[1].roles.len(), 2);
     }

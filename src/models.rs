@@ -9,11 +9,18 @@ pub struct Person {
     pub surname: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RoleAssignment {
+    pub role_name: String,
+    pub startdate: Option<String>,
+    pub enddate: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersonWithRoles {
     #[serde(flatten)]
     pub person: Person,
-    pub roles: Vec<String>,
+    pub roles: Vec<RoleAssignment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

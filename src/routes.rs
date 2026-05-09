@@ -3,7 +3,7 @@ use rocket::{get, post, put, delete, routes};
 use rocket_dyn_templates::{Template, context};
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use crate::models::{Person, PersonWithRoles, Role};
+use crate::models::{Person, PersonWithRoles, Role, RoleAssignment};
 use crate::db;
 
 #[get("/people")]
@@ -39,7 +39,7 @@ pub async fn edit_person_page(pool: &State<SqlitePool>, id: i64) -> Result<Templ
 pub struct PersonWithRolesInput {
     #[serde(flatten)]
     person: Person,
-    roles: Vec<String>,
+    roles: Vec<RoleAssignment>,
 }
 
 #[get("/persons")]
@@ -213,6 +213,8 @@ mod tests {
                 "CREATE TABLE IF NOT EXISTS person_roles (
                     person_id INTEGER NOT NULL,
                     role_id INTEGER NOT NULL,
+                    startdate TEXT,
+                    enddate TEXT,
                     PRIMARY KEY (person_id, role_id),
                     FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE CASCADE,
                     FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
@@ -264,7 +266,7 @@ mod tests {
         let response = client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"John","surname":"Doe","roles":["Developer"]}"#)
+            .body(r#"{"name":"John","surname":"Doe","roles":[{"role_name":"Developer","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         assert_eq!(response.status(), Status::Ok);
@@ -294,13 +296,13 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Jane","surname":"Smith","roles":["Manager"]}"#)
+            .body(r#"{"name":"Jane","surname":"Smith","roles":[{"role_name":"Manager","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client
             .put("/api/persons/1")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Jane","surname":"Smith","roles":["Senior Manager"]}"#)
+            .body(r#"{"name":"Jane","surname":"Smith","roles":[{"role_name":"Senior Manager","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         assert_eq!(response.status(), Status::Ok);
@@ -317,7 +319,7 @@ mod tests {
         let response = client
             .put("/api/persons/999")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Test","surname":"User","roles":["Role"]}"#)
+            .body(r#"{"name":"Test","surname":"User","roles":[{"role_name":"Role","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         assert_eq!(response.status(), Status::NotFound);
@@ -330,7 +332,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Delete","surname":"Me","roles":["Test"]}"#)
+            .body(r#"{"name":"Delete","surname":"Me","roles":[{"role_name":"Test","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client.delete("/api/persons/1").dispatch();
@@ -355,13 +357,13 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Alice","surname":"Brown","roles":["Designer"]}"#)
+            .body(r#"{"name":"Alice","surname":"Brown","roles":[{"role_name":"Designer","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Bob","surname":"Green","roles":["Developer"]}"#)
+            .body(r#"{"name":"Bob","surname":"Green","roles":[{"role_name":"Developer","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client.get("/api/persons").dispatch();
@@ -392,13 +394,13 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"John","surname":"Doe","roles":["Developer"]}"#)
+            .body(r#"{"name":"John","surname":"Doe","roles":[{"role_name":"Developer","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Jane","surname":"Smith","roles":["Manager"]}"#)
+            .body(r#"{"name":"Jane","surname":"Smith","roles":[{"role_name":"Manager","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client.get("/people").dispatch();
@@ -432,7 +434,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"John","surname":"Doe","roles":["Developer"]}"#)
+            .body(r#"{"name":"John","surname":"Doe","roles":[{"role_name":"Developer","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client.get("/people/1").dispatch();
@@ -463,7 +465,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Alice","surname":"Smith","roles":["Manager"]}"#)
+            .body(r#"{"name":"Alice","surname":"Smith","roles":[{"role_name":"Manager","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client.get("/people/1").dispatch();
@@ -483,7 +485,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Test","surname":"User","roles":["Temp"]}"#)
+            .body(r#"{"name":"Test","surname":"User","roles":[{"role_name":"Temp","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client.get("/people/1").dispatch();
@@ -501,7 +503,7 @@ mod tests {
         client
             .post("/api/persons")
             .header(ContentType::JSON)
-            .body(r#"{"name":"Bob","surname":"Brown","roles":["Tester"]}"#)
+            .body(r#"{"name":"Bob","surname":"Brown","roles":[{"role_name":"Tester","startdate":null,"enddate":null}]}"#)
             .dispatch();
 
         let response = client.get("/people").dispatch();
