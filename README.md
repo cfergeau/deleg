@@ -1,16 +1,19 @@
 # Deleg
 
-A simple web application for managing people and their roles, built with Rust, Rocket, and htmx.
+A web application for tracking delegation hours for French works council (CSE - Comité Social et Économique) members. Built with Rust, Rocket, and htmx.
 
 ## Features
 
-- View all persons in a clean table interface
-- Add, edit, and delete person records
-- RESTful API for person management
+- Track persons with multiple role assignments
+- Manage roles with delegation hour allocations
+- Date-based role assignments (start and end dates)
+- Automatic filtering of expired and future roles
+- View all persons and roles in clean table interfaces
+- RESTful API for person and role management
 - Server-side rendering with Tera templates
 - Dynamic interactions with htmx
 - SQLite database with sqlx for type-safe queries
-- Comprehensive test coverage
+- Comprehensive test coverage (44 tests)
 
 ## Tech Stack
 
@@ -64,16 +67,18 @@ The application will be available at `http://localhost:8000`
 
 ### Available Routes
 
-- `GET /people` - View all persons in a table
-- `GET /people/:id` - Edit a specific person
+**Web Pages:**
+- `GET /people` - View all persons with their currently active roles
+- `GET /people/<id>` - Edit a person's information and role assignments
+- `GET /roles` - View all roles with delegation hours
 
-### API Endpoints
+**API Endpoints:**
 
-- `GET /api/persons` - Get all persons (JSON)
-- `GET /api/persons/:id` - Get a specific person (JSON)
-- `POST /api/persons` - Create a new person (JSON)
-- `PUT /api/persons/:id` - Update a person (JSON)
-- `DELETE /api/persons/:id` - Delete a person
+For complete API documentation including request/response formats and examples, see **[API.md](API.md)**.
+
+Summary of endpoints:
+- **Persons:** GET, POST, PUT, DELETE `/api/persons` and `/api/persons/<id>`
+- **Roles:** GET, POST, PUT, DELETE `/api/roles` and `/api/roles/<id>`
 
 ## Development
 
@@ -125,13 +130,15 @@ deleg/
 ├── migrations/          # Database migration files
 ├── src/
 │   ├── main.rs         # Application entry point
-│   ├── models.rs       # Data models (Person)
+│   ├── models.rs       # Data models (Person, Role, RoleAssignment)
 │   ├── db.rs           # Database operations (CRUD)
 │   └── routes.rs       # HTTP routes and handlers
 ├── templates/          # Tera HTML templates
-│   ├── people.html.tera
-│   └── edit_person.html.tera
+│   ├── people.html.tera       # List all persons
+│   ├── edit_person.html.tera  # Edit person form
+│   └── roles.html.tera        # List all roles
 ├── Cargo.toml          # Rust dependencies
+├── API.md              # REST API documentation
 ├── CLAUDE.md           # Development guidelines
 └── README.md           # This file
 ```
