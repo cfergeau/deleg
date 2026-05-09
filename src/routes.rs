@@ -139,7 +139,8 @@ mod tests {
             sqlx::query(
                 "CREATE TABLE IF NOT EXISTS roles (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
+                    name TEXT NOT NULL UNIQUE,
+                    delegation_hours REAL NOT NULL DEFAULT 0.0
                 )"
             )
             .execute(&pool)

@@ -99,8 +99,9 @@ pub async fn delete_person(pool: &SqlitePool, id: i64) -> Result<bool> {
 // Role CRUD operations
 pub async fn create_role(pool: &SqlitePool, role: &Role) -> Result<Role> {
     let result = sqlx::query!(
-        "INSERT INTO roles (name) VALUES (?)",
-        role.name
+        "INSERT INTO roles (name, delegation_hours) VALUES (?, ?)",
+        role.name,
+        role.delegation_hours
     )
     .execute(pool)
     .await?;
@@ -108,13 +109,14 @@ pub async fn create_role(pool: &SqlitePool, role: &Role) -> Result<Role> {
     Ok(Role {
         id: Some(result.last_insert_rowid()),
         name: role.name.clone(),
+        delegation_hours: role.delegation_hours,
     })
 }
 
 pub async fn get_role(pool: &SqlitePool, id: i64) -> Result<Option<Role>> {
     let role = sqlx::query_as!(
         Role,
-        "SELECT id, name FROM roles WHERE id = ?",
+        "SELECT id, name, delegation_hours FROM roles WHERE id = ?",
         id
     )
     .fetch_optional(pool)
@@ -126,7 +128,7 @@ pub async fn get_role(pool: &SqlitePool, id: i64) -> Result<Option<Role>> {
 pub async fn get_role_by_name(pool: &SqlitePool, name: &str) -> Result<Option<Role>> {
     let role = sqlx::query_as!(
         Role,
-        "SELECT id, name FROM roles WHERE name = ?",
+        "SELECT id, name, delegation_hours FROM roles WHERE name = ?",
         name
     )
     .fetch_optional(pool)
@@ -138,7 +140,7 @@ pub async fn get_role_by_name(pool: &SqlitePool, name: &str) -> Result<Option<Ro
 pub async fn get_all_roles(pool: &SqlitePool) -> Result<Vec<Role>> {
     let roles = sqlx::query_as!(
         Role,
-        "SELECT id, name FROM roles"
+        "SELECT id, name, delegation_hours FROM roles"
     )
     .fetch_all(pool)
     .await?;
@@ -210,7 +212,7 @@ pub async fn set_person_roles(pool: &SqlitePool, person_id: i64, role_names: &[S
         // Get or create role
         let role = match get_role_by_name(pool, role_name).await? {
             Some(r) => r,
-            None => create_role(pool, &Role::new(role_name.clone())).await?,
+            None => create_role(pool, &Role::new(role_name.clone(), 0.0)).await?,
         };
 
         if let Some(role_id) = role.id {
@@ -242,7 +244,8 @@ mod tests {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS roles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE
+                name TEXT NOT NULL UNIQUE,
+                delegation_hours REAL NOT NULL DEFAULT 0.0
             )"
         )
         .execute(&pool)
@@ -381,18 +384,19 @@ mod tests {
     async fn test_create_role() {
         let pool = setup_test_db().await;
 
-        let role = Role::new("Developer".to_string());
+        let role = Role::new("Developer".to_string(), 18.0);
         let created = create_role(&pool, &role).await.unwrap();
 
         assert!(created.id.is_some());
         assert_eq!(created.name, "Developer");
+        assert_eq!(created.delegation_hours, 18.0);
     }
 
     #[tokio::test]
     async fn test_get_role() {
         let pool = setup_test_db().await;
 
-        let role = Role::new("Manager".to_string());
+        let role = Role::new("Manager".to_string(), 20.0);
         let created = create_role(&pool, &role).await.unwrap();
         let id = created.id.unwrap();
 
@@ -402,13 +406,14 @@ mod tests {
         let fetched = fetched.unwrap();
         assert_eq!(fetched.id, Some(id));
         assert_eq!(fetched.name, "Manager");
+        assert_eq!(fetched.delegation_hours, 20.0);
     }
 
     #[tokio::test]
     async fn test_get_role_by_name() {
         let pool = setup_test_db().await;
 
-        let role = Role::new("Designer".to_string());
+        let role = Role::new("Designer".to_string(), 15.0);
         create_role(&pool, &role).await.unwrap();
 
         let fetched = get_role_by_name(&pool, "Designer").await.unwrap();
@@ -416,6 +421,7 @@ mod tests {
         assert!(fetched.is_some());
         let fetched = fetched.unwrap();
         assert_eq!(fetched.name, "Designer");
+        assert_eq!(fetched.delegation_hours, 15.0);
     }
 
     #[tokio::test]
@@ -426,7 +432,7 @@ mod tests {
         let created_person = create_person(&pool, &person).await.unwrap();
         let person_id = created_person.id.unwrap();
 
-        let role = Role::new("Developer".to_string());
+        let role = Role::new("Developer".to_string(), 18.0);
         let created_role = create_role(&pool, &role).await.unwrap();
         let role_id = created_role.id.unwrap();
 
@@ -445,7 +451,7 @@ mod tests {
         let created_person = create_person(&pool, &person).await.unwrap();
         let person_id = created_person.id.unwrap();
 
-        let role = Role::new("Manager".to_string());
+        let role = Role::new("Manager".to_string(), 20.0);
         let created_role = create_role(&pool, &role).await.unwrap();
         let role_id = created_role.id.unwrap();
 
@@ -465,8 +471,8 @@ mod tests {
         let created_person = create_person(&pool, &person).await.unwrap();
         let person_id = created_person.id.unwrap();
 
-        let role1 = Role::new("Developer".to_string());
-        let role2 = Role::new("Manager".to_string());
+        let role1 = Role::new("Developer".to_string(), 18.0);
+        let role2 = Role::new("Manager".to_string(), 20.0);
         let created_role1 = create_role(&pool, &role1).await.unwrap();
         let created_role2 = create_role(&pool, &role2).await.unwrap();
 
@@ -498,6 +504,10 @@ mod tests {
         assert_eq!(roles.len(), 2);
         assert!(roles.contains(&"Developer".to_string()));
         assert!(roles.contains(&"Architect".to_string()));
+
+        // Verify auto-created roles have 0.0 delegation hours
+        let architect_role = get_role_by_name(&pool, "Architect").await.unwrap().unwrap();
+        assert_eq!(architect_role.delegation_hours, 0.0);
 
         // Update roles
         let new_role_names = vec!["Manager".to_string()];

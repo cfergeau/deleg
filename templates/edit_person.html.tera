@@ -79,7 +79,15 @@
         </div>
         <div class="form-group">
             <label for="roles">Roles (comma-separated):</label>
-            <input type="text" id="roles" name="roles" value="{{ person_roles | join(sep=', ') }}" placeholder="e.g., Developer, Manager">
+            <input type="text" id="roles" name="roles" value="{{ person_roles | join(sep=', ') }}" placeholder="e.g., Élu titulaire CSE, Délégué syndical">
+            {% if all_roles %}
+            <small style="display: block; margin-top: 5px; color: #666;">
+                Available roles:
+                {% for role in all_roles %}
+                    {{ role.name }} ({{ role.delegation_hours }}h/month){% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </small>
+            {% endif %}
         </div>
         <div class="button-group">
             <button type="submit" class="btn-save">Save</button>

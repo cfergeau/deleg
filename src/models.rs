@@ -19,6 +19,7 @@ pub struct PersonWithRoles {
 pub struct Role {
     pub id: Option<i64>,
     pub name: String,
+    pub delegation_hours: f64,
 }
 
 impl Person {
@@ -32,10 +33,11 @@ impl Person {
 }
 
 impl Role {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, delegation_hours: f64) -> Self {
         Self {
             id: None,
             name,
+            delegation_hours,
         }
     }
 }
