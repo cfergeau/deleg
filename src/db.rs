@@ -202,6 +202,7 @@ pub async fn get_person_roles(pool: &SqlitePool, person_id: i64) -> Result<Vec<R
         "SELECT r.name, pr.startdate, pr.enddate FROM roles r
          JOIN person_roles pr ON r.id = pr.role_id
          WHERE pr.person_id = ?
+           AND (pr.startdate IS NULL OR pr.startdate <= date('now'))
            AND (pr.enddate IS NULL OR pr.enddate >= date('now'))
          ORDER BY r.name",
         person_id
@@ -617,5 +618,45 @@ mod tests {
         assert!(roles.iter().any(|r| r.role_name == "Current Role"), "Should include role with no enddate");
         assert!(roles.iter().any(|r| r.role_name == "Future Role"), "Should include role with future enddate");
         assert!(!roles.iter().any(|r| r.role_name == "Expired Role"), "Should NOT include role with past enddate");
+    }
+
+    #[tokio::test]
+    async fn test_roles_with_future_startdate_not_shown() {
+        let pool = setup_test_db().await;
+
+        let person = Person::new("Marie".to_string(), "Bernard".to_string());
+        let created_person = create_person(&pool, &person).await.unwrap();
+        let person_id = created_person.id.unwrap();
+
+        // Add roles with different start dates
+        let role_assignments = vec![
+            // Role with no startdate - should be shown
+            RoleAssignment {
+                role_name: "No Start Role".to_string(),
+                startdate: None,
+                enddate: None
+            },
+            // Role with past startdate - should be shown
+            RoleAssignment {
+                role_name: "Started Role".to_string(),
+                startdate: Some("2020-01-01".to_string()),
+                enddate: None
+            },
+            // Role with future startdate - should NOT be shown
+            RoleAssignment {
+                role_name: "Future Start Role".to_string(),
+                startdate: Some("2099-01-01".to_string()),
+                enddate: Some("2099-12-31".to_string())
+            },
+        ];
+        set_person_roles(&pool, person_id, &role_assignments).await.unwrap();
+
+        // Fetch roles - should only get the two that have started
+        let roles = get_person_roles(&pool, person_id).await.unwrap();
+
+        assert_eq!(roles.len(), 2, "Should only return roles without startdate or with past/current startdate");
+        assert!(roles.iter().any(|r| r.role_name == "No Start Role"), "Should include role with no startdate");
+        assert!(roles.iter().any(|r| r.role_name == "Started Role"), "Should include role with past startdate");
+        assert!(!roles.iter().any(|r| r.role_name == "Future Start Role"), "Should NOT include role with future startdate");
     }
 }
